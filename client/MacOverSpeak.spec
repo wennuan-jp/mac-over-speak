@@ -3,20 +3,40 @@
 
 a = Analysis(
     ['qwen_bridge.py'],
-    pathex=['..'],
+    pathex=['..', '/Users/wennuan/dev/infra/asr-llm/Qwen3-ASR/'],
     binaries=[],
-    datas=[('../api', 'api')],
+    datas=[
+        ('../api', 'api'),
+        ('/Users/wennuan/miniconda3/envs/qwen3-asr/lib/python3.12/site-packages/nagisa/data', 'nagisa/data')
+    ],
     hiddenimports=[
         'api.settings',
         'api.urls',
         'api.views',
         'api.asr_engine',
         'qwen_asr',
+        'qwen_asr.inference',
+        'qwen_asr.inference.qwen3_asr',
+        'qwen_asr.inference.utils',
+        'qwen_asr.core',
+        'qwen_asr.core.transformers_backend',
+        'nagisa',
+        'nagisa.prepro',
+        'nagisa.train',
+        'nagisa.tagger',
+        'nagisa.model',
+        'nagisa.mecab_system_eval',
         'torch',
         'transformers',
         'soundfile',
         'scipy',
-        'django'
+        'django',
+        'objc',
+        'AppKit',
+        'ApplicationServices',
+        'rumps',
+        'pynput.keyboard._darwin',
+        'pynput.mouse._darwin'
     ],
     hookspath=[],
     hooksconfig={},

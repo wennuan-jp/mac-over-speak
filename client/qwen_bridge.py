@@ -457,18 +457,6 @@ class ASRClient:
             except:
                 pass
 
-        hotkeys = {
-            "<cmd>+,": lambda: self.queue_task(self.open_settings)
-        }
-        
-        print(f"Registering hotkeys: {list(hotkeys.keys())}")
-        
-        try:
-            self.hotkey_listener = keyboard.GlobalHotKeys(hotkeys)
-            self.hotkey_listener.start()
-        except Exception as e:
-            print(f"Hotkey Error: {e}")
-
         def on_press(key):
             try:
                 if key == keyboard.Key.cmd or key == keyboard.Key.cmd_l or key == keyboard.Key.cmd_r:
@@ -644,6 +632,5 @@ if __name__ == "__main__":
         # Run as UI Client
         client = ASRClient()
         print("\n[!] Mac Over Speak Active")
-        print("    Hotkey: Double Tap Command (Cmd)")
-        print("    Settings: Cmd+, (逗号)\n")
+        print("    Hotkey: Double Tap Command (Cmd)\n")
         client.app.run()
