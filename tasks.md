@@ -55,3 +55,11 @@
 # Problems
 
 - [x] 当输入法选择为日文的时候, detected language为英文 (已修复: 增加了对日文输入法的识别并映射为 "ja")
+- [x] 修复了 API 端语言代码映射导致的 500 错误。
+- [x] 扩展了 API 支持的语言列表（30+ 语言）。
+- [x] 修复了打包后应用因缺少 Accessibility 权限导致快捷键失效的问题（增加了权限检查提示）。
+- [ ] 正在解决打包安装后后端服务显示 "Offline" 的问题（正在增强路径识别和日志输出）。
+
+# Better than none
+
+- [ ] indicator icon in task bar should indicate llm status, when warming up should show a spinner, when ready should show a checkmark with mic, when error or offline should show a cross with mic

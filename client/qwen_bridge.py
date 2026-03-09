@@ -39,7 +39,9 @@ CONFIG_FILE = os.path.expanduser("~/.mac_over_speak_config.json")
 
 def get_bundle_dir():
     if getattr(sys, 'frozen', False):
-        return sys._MEIPASS
+        # In PyInstaller Mac bundle, _MEIPASS is the Contents/Resources dir usually
+        # but the actual executable path is where the app sits.
+        return getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 class ConfigManager:
@@ -138,12 +140,25 @@ class SettingsWindow:
 class ASRClient:
     def __init__(self):
         try:
-            # Eagerly load PyObjC ApplicationServices before starting UI/hotkey threads
-            # to prevent lazy-loading race conditions causing KeyError: 'AXIsProcessTrusted'
+            # Eagerly load PyObjC ApplicationServices
             import ApplicationServices
             from ApplicationServices import HIServices
             _ = ApplicationServices.AXUIElementCreateSystemWide
-            _ = HIServices.AXIsProcessTrusted
+            
+            # Check if process is trusted (has accessibility permissions)
+            if not HIServices.AXIsProcessTrusted():
+                print("Accessibility permissions NOT granted.")
+                # Show a warning dialog to the user
+                root = tk.Tk()
+                root.withdraw()
+                from tkinter import messagebox
+                messagebox.showwarning(
+                    "Accessibility Required",
+                    "Mac Over Speak needs Accessibility permissions to function.\n\n"
+                    "Please go to System Settings > Privacy & Security > Accessibility "
+                    "and enable MacOverSpeak.app."
+                )
+                root.destroy()
         except Exception:
             pass
             
@@ -259,17 +274,31 @@ class ASRClient:
             pass
 
         print("Starting backend service...")
-        
-        # Start the backend as a new process using the same executable
+        log_path = os.path.expanduser("~/.mac_over_speak_backend.log")
         try:
-            # Pass "backend" as an argument to self-launch as backend
-            if getattr(sys, 'frozen', False):
-                self.backend_process = subprocess.Popen([sys.executable, "backend"])
-            else:
-                self.backend_process = subprocess.Popen([sys.executable, __file__, "backend"])
-            print(f"Backend started (PID: {self.backend_process.pid})")
+            with open(log_path, "w") as log_file:
+                # Pass "backend" as an argument to self-launch as backend
+                if getattr(sys, 'frozen', False):
+                    # For macOS bundles, we need to be careful about environment variables
+                    env = os.environ.copy()
+                    # Ensure the binary can find its own libs if they are relative
+                    self.backend_process = subprocess.Popen(
+                        [sys.executable, "backend"], 
+                        stdout=log_file, 
+                        stderr=log_file,
+                        env=env
+                    )
+                else:
+                    self.backend_process = subprocess.Popen(
+                        [sys.executable, __file__, "backend"],
+                        stdout=log_file, 
+                        stderr=log_file
+                    )
+            print(f"Backend started (PID: {self.backend_process.pid}). Logs at {log_path}")
         except Exception as e:
             print(f"Failed to start backend: {e}")
+            with open(log_path, "a") as f:
+                f.write(f"FATAL: Failed to start backend subprocess: {e}\n")
 
     def warmup_llm(self):
         self.llm_status = "Warming up..."

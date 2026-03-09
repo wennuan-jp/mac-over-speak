@@ -3,10 +3,21 @@
 
 a = Analysis(
     ['qwen_bridge.py'],
-    pathex=[],
+    pathex=['..'],
     binaries=[],
     datas=[('../api', 'api')],
-    hiddenimports=[],
+    hiddenimports=[
+        'api.settings',
+        'api.urls',
+        'api.views',
+        'api.asr_engine',
+        'qwen_asr',
+        'torch',
+        'transformers',
+        'soundfile',
+        'scipy',
+        'django'
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -46,5 +57,9 @@ app = BUNDLE(
     coll,
     name='MacOverSpeak.app',
     icon=None,
-    bundle_identifier=None,
+    bundle_identifier='com.wennuan.macoverspeak',
+    info_plist={
+        'NSAccessibilityUsageDescription': 'Mac Over Speak needs Accessibility permissions to listen for global hotkeys and simulate typing.',
+        'LSUIElement': False, # Set to True if you want it to behave like a background app (no dock icon after specific setup)
+    },
 )
