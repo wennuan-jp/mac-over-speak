@@ -20,7 +20,7 @@ API_PID=$!
 echo "Waiting for API to be ready..."
 MAX_RETRIES=300
 COUNT=0
-URL="http://127.0.0.1:8333/warmup/"
+URL="http://127.0.0.1:8333/status/"
 
 while ! curl -s "$URL" > /dev/null; do
     sleep 1

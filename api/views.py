@@ -14,22 +14,50 @@ def transcribe_view(request):
         return JsonResponse({'error': 'Only POST method is allowed'}, status=405)
 
     audio_file = request.FILES.get('audio')
-    language = request.POST.get('language', None) # e.g., "Chinese", "English" or None
+    language = request.POST.get('language', None)
 
     if not audio_file:
         return JsonResponse({'error': 'No audio file provided'}, status=400)
 
-    # Map short codes to full names if necessary, or just pass through
-    # Qwen3-ASR example uses "Chinese", "English"
     lang_map = {
         "zh": "Chinese",
+        "zh-cn": "Chinese",
+        "zh-tw": "Chinese",
+        "zh-hk": "Cantonese",
+        "yue": "Cantonese",
         "en": "English",
+        "ja": "Japanese",
         "jp": "Japanese",
         "ko": "Korean",
         "de": "German",
         "fr": "French",
+        "es": "Spanish",
+        "pt": "Portuguese",
+        "it": "Italian",
+        "ru": "Russian",
+        "vi": "Vietnamese",
+        "th": "Thai",
+        "ar": "Arabic",
+        "hi": "Hindi",
+        "tr": "Turkish",
+        "id": "Indonesian",
+        "ms": "Malay",
+        "nl": "Dutch",
+        "sv": "Swedish",
+        "da": "Danish",
+        "fi": "Finnish",
+        "pl": "Polish",
+        "cs": "Czech",
+        "el": "Greek",
+        "hu": "Hungarian",
+        "ro": "Romanian",
+        "fa": "Persian",
+        "ph": "Filipino",
+        "he": "Hebrew",
+        "mk": "Macedonian",
     }
     target_language = lang_map.get(language.lower(), language) if language else None
+    print(f"DEBUG: Processing request with language code '{language}' mapped to '{target_language}'")
 
     try:
         # Save uploaded file to a temporary location
@@ -54,6 +82,8 @@ def transcribe_view(request):
             return JsonResponse({'error': 'Transcription failed'}, status=500)
 
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return JsonResponse({'error': str(e)}, status=500)
 
 @csrf_exempt
@@ -66,3 +96,9 @@ def warmup_view(request):
         return JsonResponse({'status': 'model_loaded'})
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
+
+def status_view(request):
+    """
+    Check if the backend is running.
+    """
+    return JsonResponse({'status': 'running'})

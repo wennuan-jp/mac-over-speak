@@ -175,3 +175,12 @@ When you run the script for the first time, it will fail or hang unless you do t
 * **Active Widget:** `pyautogui.write()` works by simulating keyboard presses. Make sure your text cursor is blinking in the target widget *before* you finish speaking.
 
 **Would you like me to show you how to wrap this into a `.app` bundle so it stays in your Menu Bar and starts automatically on boot?**
+---
+
+### Packaging & Distribution
+
+To build the standalone `.app` bundle and the `.dmg` installer, follow the instructions in the [main README](../../README.md#📦-build--packaging-dmg).
+
+**Key files for building:**
+*   `MacOverSpeak.spec`: PyInstaller configuration.
+*   `dmg_settings.py`: dmgbuild appearance settings.

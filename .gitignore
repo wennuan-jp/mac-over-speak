@@ -42,7 +42,6 @@ Icon
 # Project Specific
 *.wav
 *.wav_backup
-*.spec
 *.dmg
 *.app/
 *.app
