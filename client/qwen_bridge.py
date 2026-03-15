@@ -640,35 +640,39 @@ class ASRClient:
         self.is_processing = True
         self.set_ui("PROC")
 
-        # Close stream immediately on main thread to release hardware
-        if hasattr(self, "stream") and self.stream:
-            try:
-                self.stream.stop()
-                self.stream.close()
-            except:
-                pass
-            self.stream = None
+        def _cleanup_and_start_processing():
+            # Close stream in background to release hardware without blocking UI
+            if hasattr(self, "stream") and self.stream:
+                try:
+                    print("[Stream] Stopping and closing stream...")
+                    self.stream.stop()
+                    self.stream.close()
+                except Exception as e:
+                    print(f"[Stream] Error closing stream: {e}")
+                self.stream = None
+            
+            # Start inference
+            self._run_inference_and_type()
 
-        processing_thread = threading.Thread(
-            target=self._run_inference_and_type
-        )
+        processing_thread = threading.Thread(target=_cleanup_and_start_processing)
         processing_thread.daemon = True
         processing_thread.start()
 
     def _run_inference_and_type(self):
-
         if not self.audio_data:
+            print("[Inference] No audio data captured.")
             self.is_processing = False
             self.set_ui("HIDE")
             return
+        
         try:
-            temp_file = "input.wav"
+            temp_file = os.path.join(os.path.expanduser("~"), "input_asr.wav")
             wav_data = np.concatenate(self.audio_data)
             wav.write(temp_file, self.config.get("sample_rate"), wav_data)
 
             # Detect language automatically from background polled state
             detected_lang = getattr(self, "current_language_ui", "en")
-            print(f"Detected language: {detected_lang}")
+            print(f"[Inference] Starting API request. Lang: {detected_lang}")
 
             with open(temp_file, "rb") as f:
                 api_url = self.config.get("api_url")
@@ -683,35 +687,46 @@ class ASRClient:
                 text = r.json().get("text", "")
 
             if text:
+                print(f"[Inference] Text received: {text[:20]}...")
                 self.set_ui("TYPE")
-                self.schedule_task(200, lambda: self._paste_text_in_main_thread(text))
+                # Offload clipboard and typing to background to avoid main thread jitter
+                self._paste_text_background(text)
             else:
+                print("[Inference] No text returned from API.")
                 self.is_processing = False
                 self.set_ui("HIDE")
         except Exception as e:
-            print(f"Task Error: {e}")
+            print(f"[Inference] Error: {e}")
             self.is_processing = False
             self.set_ui("HIDE")
 
-    def _paste_text_in_main_thread(self, text):
-        import subprocess
+    def _paste_text_background(self, text):
+        def _paste_worker():
+            try:
+                # Use subprocess for clipboard
+                import subprocess
+                print("[Paste] Copying to clipboard...")
+                subprocess.run(["pbcopy"], input=text.encode("utf-8"), check=True)
+                
+                # Small wait before typing
+                time.sleep(0.1)
+                
+                print("[Paste] Injecting Cmd+V...")
+                with self.keyboard_ctrl.pressed(keyboard.Key.cmd):
+                    self.keyboard_ctrl.tap("v")
+                
+                print("[Paste] Success.")
+            except Exception as e:
+                print(f"[Paste] Error: {e}")
+            
+            # Use queue to update UI and state on main thread
+            self.schedule_task(500, self._finalize_processing)
 
-        try:
-            subprocess.run(["pbcopy"], input=text.encode("utf-8"), check=True)
-            self.schedule_task(100, self._trigger_paste_in_main_thread)
-        except Exception as e:
-            print(f"Clipboard Error: {e}")
-            self.is_processing = False
-            self.set_ui("HIDE")
+        threading.Thread(target=_paste_worker, daemon=True).start()
 
-    def _trigger_paste_in_main_thread(self):
-        try:
-            with self.keyboard_ctrl.pressed(keyboard.Key.cmd):
-                self.keyboard_ctrl.tap("v")
-        except Exception as e:
-            print(f"Keyboard injection Error: {e}")
+    def _finalize_processing(self):
         self.is_processing = False
-        self.schedule_task(500, lambda: self.set_ui("HIDE"))
+        self.set_ui("HIDE")
 
     def on_closing(self):
         print("Shutting down...")
