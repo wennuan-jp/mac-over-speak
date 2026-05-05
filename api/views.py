@@ -2,6 +2,7 @@ import os
 import tempfile
 import time
 import uuid
+import wave
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from .asr_engine import asr_engine
@@ -9,6 +10,23 @@ from .asr_engine import asr_engine
 # Contains the 
 # transcribe_view
 #  which handles POST requests. It expects a multipart/form-data payload.
+
+MAX_AUDIO_SIZE_MB = max(1, int(os.getenv("ASR_MAX_AUDIO_SIZE_MB", "10")))
+MAX_AUDIO_DURATION_SECONDS = max(5, int(os.getenv("ASR_MAX_AUDIO_SECONDS", "300")))
+
+
+def _wav_duration_seconds(path):
+    try:
+        with wave.open(path, "rb") as wav_file:
+            frame_rate = wav_file.getframerate()
+            frame_count = wav_file.getnframes()
+            if frame_rate <= 0:
+                return None
+            return frame_count / frame_rate
+    except wave.Error:
+        return None
+    except Exception:
+        return None
 
 @csrf_exempt
 def transcribe_view(request):
@@ -75,6 +93,39 @@ def transcribe_view(request):
             tmp_path = tmp.name
         file_size = os.path.getsize(tmp_path)
         print(f"DEBUG: [{request_id}] Temp audio saved to {tmp_path} ({file_size} bytes)")
+
+        max_audio_size_bytes = MAX_AUDIO_SIZE_MB * 1024 * 1024
+        if file_size > max_audio_size_bytes:
+            print(
+                f"DEBUG: [{request_id}] Rejecting oversized audio: "
+                f"{file_size} bytes > {max_audio_size_bytes} bytes"
+            )
+            return JsonResponse(
+                {
+                    'error': (
+                        f'Audio file is too large. Max supported size is '
+                        f'{MAX_AUDIO_SIZE_MB} MB.'
+                    )
+                },
+                status=413,
+            )
+
+        duration_seconds = _wav_duration_seconds(tmp_path)
+        if duration_seconds is not None:
+            print(
+                f"DEBUG: [{request_id}] Audio duration is "
+                f"{round(duration_seconds, 2)}s"
+            )
+            if duration_seconds > MAX_AUDIO_DURATION_SECONDS:
+                return JsonResponse(
+                    {
+                        'error': (
+                            f'Audio is too long. Max supported duration is '
+                            f'{MAX_AUDIO_DURATION_SECONDS} seconds.'
+                        )
+                    },
+                    status=413,
+                )
 
         # Transcribe
         result = asr_engine.transcribe(tmp_path, language=target_language)

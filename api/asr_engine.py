@@ -107,6 +107,7 @@ class ASREngine:
             cls._instance.reset_every_n = _resolve_reset_every_n()
             cls._instance.transcribe_count = 0
             cls._instance._load_lock = threading.Lock()
+            cls._instance._transcribe_lock = threading.Lock()
         return cls._instance
 
     def load_model(self):
@@ -187,18 +188,21 @@ class ASREngine:
         before = _memory_snapshot()
         started_at = time.perf_counter()
         try:
-            # audio_data can be a file path, bytes, or (wav, sr)
-            # We explicitly pass context="" to ensure no history is kept.
-            with torch.inference_mode():
-                results = self.model.transcribe(
-                    audio=audio_data,
-                    context="",
-                    language=language,
-                    return_time_stamps=False,
-                )
-            result = results[0] if results else None
-            self.transcribe_count += 1
-            return result
+            # Keep GPU / MPS memory bounded by allowing only one active decode
+            # against the shared singleton model at a time.
+            with self._transcribe_lock:
+                # audio_data can be a file path, bytes, or (wav, sr)
+                # We explicitly pass context="" to ensure no history is kept.
+                with torch.inference_mode():
+                    results = self.model.transcribe(
+                        audio=audio_data,
+                        context="",
+                        language=language,
+                        return_time_stamps=False,
+                    )
+                result = results[0] if results else None
+                self.transcribe_count += 1
+                return result
         finally:
             if results is not None:
                 del results

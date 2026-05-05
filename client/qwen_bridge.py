@@ -7,15 +7,15 @@ import socketserver
 import subprocess
 import sys
 import threading
+import tempfile
 import time
 import tkinter as tk
+import wave
 from tkinter import ttk
 
-import numpy as np
 import plistlib
 import requests
 import rumps
-import scipy.io.wavfile as wav
 import sounddevice as sd
 from PIL import Image, ImageDraw
 from pynput import keyboard
@@ -31,6 +31,7 @@ DEFAULT_CONFIG = {
     "clear_url": "http://127.0.0.1:8333/clear/",
     "language": "zh",
     "sample_rate": 16000,
+    "max_record_seconds": 300,
 }
 CONFIG_FILE = os.path.expanduser("~/.mac_over_speak_config.json")
 
@@ -166,7 +167,12 @@ class ASRClient:
         self.config = ConfigManager()
         self.is_recording = False
         self.is_processing = False
-        self.audio_data = []
+        self.stream = None
+        self.recording_file_path = None
+        self.recording_wave = None
+        self.recording_frame_count = 0
+        self.recording_lock = threading.Lock()
+        self.limit_stop_requested = False
         self.keyboard_ctrl = keyboard.Controller()
         self.hotkey_listener = None
         self.shift_key_listener = None
@@ -678,18 +684,64 @@ class ASRClient:
         if self.is_recording:
             return
         self.is_recording = True
-        self.audio_data = []
+        self.limit_stop_requested = False
+        self.recording_frame_count = 0
         self.set_ui("REC")
 
+        sample_rate = int(self.config.get("sample_rate") or DEFAULT_CONFIG["sample_rate"])
+        max_record_seconds = int(
+            self.config.get("max_record_seconds")
+            or DEFAULT_CONFIG["max_record_seconds"]
+        )
+        max_record_frames = sample_rate * max_record_seconds
+
+        temp_handle = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+        self.recording_file_path = temp_handle.name
+        temp_handle.close()
+        self.recording_wave = wave.open(self.recording_file_path, "wb")
+        self.recording_wave.setnchannels(1)
+        self.recording_wave.setsampwidth(2)
+        self.recording_wave.setframerate(sample_rate)
+
         def callback(indata, frames, time, status):
-            if self.is_recording:
-                self.audio_data.append(indata.copy())
+            if status:
+                print(f"[Record] Stream status: {status}")
+            if not self.is_recording:
+                return
+
+            with self.recording_lock:
+                if self.recording_wave is None:
+                    return
+
+                remaining_frames = max_record_frames - self.recording_frame_count
+                if remaining_frames <= 0:
+                    if not self.limit_stop_requested:
+                        self.limit_stop_requested = True
+                        self.queue_task(self.stop_and_process)
+                    return
+
+                chunk = indata[:remaining_frames] if frames > remaining_frames else indata
+                self.recording_wave.writeframes(chunk.tobytes())
+                self.recording_frame_count += len(chunk)
+
+                if (
+                    self.recording_frame_count >= max_record_frames
+                    and not self.limit_stop_requested
+                ):
+                    self.limit_stop_requested = True
+                    print(
+                        f"[Record] Auto-stopping after reaching {max_record_seconds}s limit."
+                    )
+                    self.queue_task(self.stop_and_process)
 
         try:
             # Small delay to ensure previous stream is fully released by OS
             time.sleep(0.1)
             self.stream = sd.InputStream(
-                samplerate=self.config.get("sample_rate"), channels=1, callback=callback
+                samplerate=sample_rate,
+                channels=1,
+                dtype="int16",
+                callback=callback,
             )
             self.stream.start()
         except Exception as e:
@@ -702,6 +754,8 @@ class ASRClient:
                 except:
                     pass
                 self.stream = None
+            self._close_recording_file()
+            self._cleanup_recording_file()
             self.set_ui("HIDE")
 
     def stop_and_process(self):
@@ -721,6 +775,8 @@ class ASRClient:
                 except Exception as e:
                     print(f"[Stream] Error closing stream: {e}")
                 self.stream = None
+
+            self._close_recording_file()
             
             # Start inference
             self._run_inference_and_type()
@@ -730,20 +786,27 @@ class ASRClient:
         processing_thread.start()
 
     def _run_inference_and_type(self):
-        if not self.audio_data:
-            print("[Inference] No audio data captured.")
+        temp_file = self.recording_file_path
+        if not temp_file or not os.path.exists(temp_file):
+            print("[Inference] No audio file captured.")
             self.is_processing = False
             self.set_ui("HIDE")
             return
 
-        temp_file = os.path.join(os.path.expanduser("~"), "input_asr.wav")
         try:
-            wav_data = np.concatenate(self.audio_data)
-            wav.write(temp_file, self.config.get("sample_rate"), wav_data)
+            file_size = os.path.getsize(temp_file)
+            if file_size <= 44:
+                print("[Inference] Audio file is empty.")
+                self.is_processing = False
+                self.set_ui("HIDE")
+                return
 
             # Detect language automatically from background polled state
             detected_lang = getattr(self, "current_language_ui", "en")
-            print(f"[Inference] Starting API request. Lang: {detected_lang}")
+            print(
+                f"[Inference] Starting API request. Lang: {detected_lang}, "
+                f"frames: {self.recording_frame_count}, bytes: {file_size}"
+            )
 
             with open(temp_file, "rb") as f:
                 api_url = self.config.get("api_url")
@@ -771,12 +834,7 @@ class ASRClient:
             self.is_processing = False
             self.set_ui("HIDE")
         finally:
-            self.audio_data = []
-            try:
-                if os.path.exists(temp_file):
-                    os.remove(temp_file)
-            except Exception:
-                pass
+            self._cleanup_recording_file()
 
     def _paste_text_background(self, text):
         def _paste_worker():
@@ -805,6 +863,30 @@ class ASRClient:
     def _finalize_processing(self):
         self.is_processing = False
         self.set_ui("HIDE")
+
+    def _close_recording_file(self):
+        with self.recording_lock:
+            if self.recording_wave is None:
+                return
+            try:
+                self.recording_wave.close()
+            except Exception as e:
+                print(f"[Record] Error closing WAV file: {e}")
+            finally:
+                self.recording_wave = None
+
+    def _cleanup_recording_file(self):
+        temp_file = self.recording_file_path
+        self.recording_file_path = None
+        self.recording_frame_count = 0
+        self.limit_stop_requested = False
+        if not temp_file:
+            return
+        try:
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
+        except Exception as e:
+            print(f"[Record] Failed to remove temp audio file {temp_file}: {e}")
 
     def on_closing(self):
         if self._is_closing:
