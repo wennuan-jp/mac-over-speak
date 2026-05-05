@@ -3,7 +3,7 @@
 
 a = Analysis(
     ['qwen_bridge.py'],
-    pathex=['..', '/Users/wennuan/dev/infra/asr-llm/Qwen3-ASR/'],
+    pathex=['..'],
     binaries=[],
     datas=[
         ('../api', 'api'),

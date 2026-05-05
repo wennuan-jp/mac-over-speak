@@ -9,6 +9,7 @@ cd "$PROJECT_ROOT"
 eval "$(conda shell.bash hook)"
 conda activate qwen3-asr
 export PYTHONUNBUFFERED=1
+export PYTHONPATH="$PROJECT_ROOT:$PYTHONPATH"
 
 echo "🚀 Starting Mac Over Speak (Conda: qwen3-asr)..."
 
